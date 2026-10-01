@@ -174,6 +174,9 @@ const InhibitorManager = GObject.registerClass({
         // Update state when fullscreened
         global.display.connectObject('in-fullscreen-changed', () => this._updateState(), this);
 
+        // The extension stays enabled on the lock screen, so re-pick the inhibit flags on lock changes
+        Main.sessionMode.connectObject('updated', () => this._forceUpdate(), this);
+
         // Init mpris
         this._onMprisSettingChange();
 
@@ -384,6 +387,11 @@ const InhibitorManager = GObject.registerClass({
             allowBlank = this._settings.get_enum(SCREEN_BLANK) > ControlContext.NEVER;
         }
 
+        // A locked screen must be able to blank, only keep blocking suspend
+        if (Main.sessionMode.isLocked) {
+            allowBlank = true;
+        }
+
         let inhibitFlags;
         if (allowBlank) {
             // Inhibit suspending the session or computer
@@ -469,6 +477,7 @@ const InhibitorManager = GObject.registerClass({
     destroy() {
         this._disconnectTriggerSignals();
         global.display.disconnectObject(this);
+        Main.sessionMode.disconnectObject(this);
         this._settings.disconnectObject(this);
 
         if (this._isInhibited) {
