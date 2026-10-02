@@ -29,14 +29,11 @@ import GLib from 'gi://GLib';
 
 import { Extension, gettext as _ } from 'resource:///org/gnome/shell/extensions/extension.js';
 import { MprisPlayer } from './mprisMediaPlayer2.js';
-import { PopupAnimation } from 'resource:///org/gnome/shell/ui/boxpointer.js';
 
-import * as Config from 'resource:///org/gnome/shell/misc/config.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 import * as QuickSettings from 'resource:///org/gnome/shell/ui/quickSettings.js';
 const QuickSettingsMenu = Main.panel.statusArea.quickSettings;
-const ShellVersion = parseFloat(Config.PACKAGE_VERSION);
 
 const INHIBIT_APPS_KEY = 'inhibit-apps';
 const SHOW_INDICATOR_KEY = 'show-indicator';
@@ -700,33 +697,21 @@ class Caffeine extends QuickSettings.SystemIndicator {
             },
             this);
 
-        if (ShellVersion >= 46) {
-            QuickSettingsMenu._indicators.connectObject(
-                'child-added', () => this._updateMaxPosition(),
-                'child-removed', () => this._updateMaxPosition(),
-                this);
-        } else {
-            QuickSettingsMenu._indicators.connectObject(
-                'actor-added', () => this._updateMaxPosition(),
-                'actor-removed', () => this._updateMaxPosition(),
-                this);
-        }
+        QuickSettingsMenu._indicators.connectObject(
+            'child-added', () => this._updateMaxPosition(),
+            'child-removed', () => this._updateMaxPosition(),
+            this);
 
         // Change user state on icon scroll event
         this._indicator.reactive = true;
-        if (ShellVersion >= 51) {
-            const scrollController = new Clutter.ScrollController({
-                flags: Clutter.ScrollControllerFlags.DISCRETE |
-                    Clutter.ScrollControllerFlags.SCROLL_VERTICAL |
-                    Clutter.ScrollControllerFlags.PHYSICAL_DIRECTION
-            });
-            scrollController.connectObject(
-                'scroll', this._handleScrollController.bind(this), this);
-            this._indicator.add_action(scrollController);
-        } else {
-            this._indicator.connectObject('scroll-event',
-                (_actor, event) => this._handleScrollEvent(event), this);
-        }
+        const scrollController = new Clutter.ScrollController({
+            flags: Clutter.ScrollControllerFlags.DISCRETE |
+                Clutter.ScrollControllerFlags.SCROLL_VERTICAL |
+                Clutter.ScrollControllerFlags.PHYSICAL_DIRECTION
+        });
+        scrollController.connectObject(
+            'scroll', this._handleScrollController.bind(this), this);
+        this._indicator.add_action(scrollController);
 
         // Init position and index of indicator icon
         this.indicatorPosition = this._settings.get_int(INDICATOR_POSITION);
@@ -735,11 +720,7 @@ class Caffeine extends QuickSettings.SystemIndicator {
 
         // Add indicator and toggle
         QuickSettingsMenu.addExternalIndicator(this);
-        if (ShellVersion >= 46) {
-            QuickSettingsMenu._indicators.remove_child(this);
-        } else {
-            QuickSettingsMenu._indicators.remove_actor(this);
-        }
+        QuickSettingsMenu._indicators.remove_child(this);
         QuickSettingsMenu._indicators.insert_child_at_index(this, this.indicatorIndex);
 
         // Setup inhibitor manager
@@ -843,11 +824,7 @@ class Caffeine extends QuickSettings.SystemIndicator {
             this.lastIndicatorPosition = newPosition;
 
             // Update indicator index
-            if (ShellVersion >= 46) {
-                QuickSettingsMenu._indicators.remove_child(this);
-            } else {
-                QuickSettingsMenu._indicators.remove_actor(this);
-            }
+            QuickSettingsMenu._indicators.remove_child(this);
             QuickSettingsMenu._indicators.insert_child_at_index(this, this.indicatorIndex);
             this._settings.set_int(INDICATOR_INDEX, this.indicatorIndex);
         }
@@ -938,25 +915,6 @@ class Caffeine extends QuickSettings.SystemIndicator {
         }
     }
 
-    _handleScrollEvent(event) {
-        // Undo natural scrolling inversions (available on GNOME 49+)
-        let scrollDirection = event.get_scroll_direction();
-        if (ShellVersion >= 49) {
-            if (event.get_scroll_flags() & Clutter.ScrollFlags.INVERTED) {
-                switch (scrollDirection) {
-                case Clutter.ScrollDirection.UP:
-                    scrollDirection = Clutter.ScrollDirection.DOWN;
-                    break;
-                case Clutter.ScrollDirection.DOWN:
-                    scrollDirection = Clutter.ScrollDirection.UP;
-                    break;
-                }
-            }
-        }
-
-        this._handleScrollDirection(scrollDirection);
-    }
-
     _handleScrollDirection(scrollDirection) {
         switch (scrollDirection) {
         case Clutter.ScrollDirection.UP:
@@ -1028,11 +986,7 @@ class Caffeine extends QuickSettings.SystemIndicator {
             }
         }
 
-        if (ShellVersion >= 49) {
-            Main.osdWindowManager.showAll(icon, message, null, null);
-        } else {
-            Main.osdWindowManager.show(-1, icon, message, null, null);
-        }
+        Main.osdWindowManager.showAll(icon, message, null, null);
     }
 
     // Add the name of the app as subtitle
@@ -1131,10 +1085,6 @@ export default class CaffeineExtension extends Extension {
 
     _openPreferences() {
         this.openPreferences();
-        if (ShellVersion >= 51) {
-            QuickSettingsMenu.menu.close({ fadeOnly: true });
-        } else {
-            QuickSettingsMenu.menu.close(PopupAnimation.FADE);
-        }
+        QuickSettingsMenu.menu.close({ fadeOnly: true });
     }
 }
