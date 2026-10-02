@@ -22,18 +22,9 @@
 import Adw from 'gi://Adw';
 import Gtk from 'gi://Gtk';
 import GObject from 'gi://GObject';
-import Gio from 'gi://Gio';
+import GioUnix from 'gi://GioUnix?version=2.0';
 
 import { gettext as _ } from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
-
-import * as Config from 'resource:///org/gnome/Shell/Extensions/js/misc/config.js';
-const ShellVersion = parseFloat(Config.PACKAGE_VERSION);
-
-// Required for GNOME 49, without breaking on earlier shells
-let GioUnix;
-try {
-    GioUnix = (await import('gi://GioUnix?version=2.0')).default;
-} catch {}
 
 export var AppsPage = GObject.registerClass(
 class CaffeineAppsPage extends Adw.PreferencesPage {
@@ -102,12 +93,7 @@ class CaffeineAppsPage extends Adw.PreferencesPage {
 
         // Update the list & Check if app still exist
         _apps.forEach((id) => {
-            let appInfo = null;
-            if (ShellVersion >= 49) {
-                appInfo = GioUnix.DesktopAppInfo.new(id);
-            } else {
-                appInfo = Gio.DesktopAppInfo.new(id);
-            }
+            const appInfo = GioUnix.DesktopAppInfo.new(id);
 
             if (appInfo) {
                 this._listApps.push(id);
@@ -146,12 +132,7 @@ class CaffeineAppsPage extends Adw.PreferencesPage {
                     });
 
                     // App info
-                    let appInfo = null;
-                    if (ShellVersion >= 49) {
-                        appInfo = GioUnix.DesktopAppInfo.new(this._listApps[i]);
-                    } else {
-                        appInfo = Gio.DesktopAppInfo.new(this._listApps[i]);
-                    }
+                    const appInfo = GioUnix.DesktopAppInfo.new(this._listApps[i]);
                     const appIcon = new Gtk.Image({
                         gicon: appInfo.get_icon(),
                         pixel_size: 32
