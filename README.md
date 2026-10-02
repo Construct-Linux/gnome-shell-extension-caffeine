@@ -1,70 +1,44 @@
-# gnome-shell-extension-caffeine
+# gnome-shell-extension-caffeine (CONSTRUCT fork)
 
-[<img src="https://github.com/eonpatapon/gnome-shell-extension-caffeine/raw/master/resources/get_it_on_gnome_extensions.png" height="100" align="right">](https://extensions.gnome.org/extension/517/caffeine/)
+Caffeine adds a Quick Settings toggle that keeps the session from going idle
+and the machine from suspending, by hand, on a timer, while chosen apps run,
+while a window is fullscreen or while media plays.
 
-[![License](https://img.shields.io/github/license/eonpatapon/gnome-shell-extension-caffeine)](https://github.com/eonpatapon/gnome-shell-extension-caffeine/blob/master/LICENSE)
-[![GitHub release (latest by date)](https://img.shields.io/github/v/tag/eonpatapon/gnome-shell-extension-caffeine)](https://github.com/eonpatapon/gnome-shell-extension-caffeine/releases/latest)
+This is the fork CONSTRUCT ships. It follows upstream's `master` on the
+`gnome-51` branch and targets GNOME Shell 51 only.
 
-Enable / disable auto suspend with quick setting toggle.
+## Changes from upstream
 
-![Quick Toggle Caffeine](screenshots/screenshot.png)
+- **The screen can blank while the session is locked** (upstream #366). The
+  extension stays enabled on the lock screen, where its idle inhibitor kept
+  the monitors on. While locked it now inhibits suspend only, and switches
+  back when the session unlocks.
+- **GNOME Shell 51 only**: `metadata.json` lists 51, and the fallbacks for
+  older shells are gone.
+- **Repository trimmed** to what the package is built from: no GitHub
+  workflows, screenshots, extensions.gnome.org zip Makefile, ESLint or Nix
+  configuration.
 
-## Version
+## Building
 
-This extension supports GNOME Shell `3.4` -> `50`
+spin-desktop's `recipes/gnome-shell-extension-caffeine.yaml` installs it by
+hand: the extension's JavaScript, `metadata.json`, `preferences/` and `icons/`
+into `/usr/share/gnome-shell/extensions/caffeine@patapon.info`, the schema into
+`/usr/share/glib-2.0/schemas`, and each `locale/*.po` compiled with `msgfmt`
+into `/usr/share/locale/<lang>/LC_MESSAGES/gnome-shell-extension-caffeine.mo`.
 
-|Branch                   |Version|Compatible GNOME version|
-|-------------------------|:-----:|------------------------|
-| master                  |    59 | GNOME 45 -> 50         |
-| gnome-shell-43-44       |    51 | GNOME 43 -> 44         |
-| gnome-shell-40-42       |    42 | GNOME 40 -> 42         |
-| gnome-shell-3.36-3.38   |    37 | GNOME 3.36 -> 3.38     |
-| gnome-shell-3.32-3.34   |    33 | GNOME 3.32 -> 3.34     |
-| gnome-shell-3.10-3.30   |     - | GNOME 3.10 -> 3.30     |
-| gnome-shell-before-3.10 |     - | GNOME 3.4 -> 3.8       |
+`update-locale.sh` refreshes the catalogs from the sources.
 
-## Installation from source
+The state can be toggled from a shell:
 
-```bash
-make build
-make install
+```sh
+gsettings set org.gnome.shell.extensions.caffeine cli-toggle true
 ```
 
-- Restart the shell
-- Enable the extension
+## Attribution and license
 
-## Screenshots & features
+Caffeine is by Jean-Philippe Braun (eonpatapon), Stuart Hayhurst,
+pakaoraki and its other contributors:
+<https://github.com/eonpatapon/gnome-shell-extension-caffeine>.
 
-### Scroll indicator icon
-
-![Screenshot](screenshots/screenshot-scroll-up.png)![Screenshot](screenshots/screenshot-scroll-down.png)
-
-You can scroll on the indicator icon to enable / disable auto suspend:
-
-- Scroll up -> Filled cup: Caffeine enabled
-- Scroll down -> Empty cup: Caffeine disabled
-
-__Note__: the option "Show status indicator" must be set on "always" (see below).
-
-### Notifications
-
-![Screenshot](screenshots/screenshot-notification-enable.png)
-![Screenshot](screenshots/screenshot-notification-disable.png)
-
-### Timer option
-
-This option enable Caffeine for a given amount of time (similar to Caffeine in LineageOS).
-
-![Screenshot](screenshots/screenshot-timer-off.png)![Screenshot](screenshots/screenshot-timer-on.png)
-
-### Preferences
-
-![Preferences](screenshots/screenshot-prefs.png)
-
-### Command line support
-
-Query the state:
-- `gsettings --schemadir ~/.local/share/gnome-shell/extensions/caffeine@patapon.info/schemas/ get org.gnome.shell.extensions.caffeine cli-toggle`
-
-Enable / disable Caffeine:
-- `gsettings --schemadir ~/.local/share/gnome-shell/extensions/caffeine@patapon.info/schemas/ set org.gnome.shell.extensions.caffeine cli-toggle true`
+GPL-2.0-or-later; see `COPYING`.
