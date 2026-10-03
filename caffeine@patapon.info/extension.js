@@ -160,13 +160,10 @@ const InhibitorManager = GObject.registerClass({
             `changed::${NIGHT_LIGHT_KEY}`,
             () => this._updateState(),
             `changed::${INHIBIT_APPS_KEY}`,
-            () => this._updateState(),
+            () => this._reconnectTriggerSignals(),
             `changed::${TRIGGER_APPS_MODE}`,
-            () => {
-                this._disconnectTriggerSignals();
-                this._connectTriggerSignals();
-                this._updateState();
-            }, this);
+            () => this._reconnectTriggerSignals(),
+            this);
 
         // Update state when fullscreened
         global.display.connectObject('in-fullscreen-changed', () => this._updateState(), this);
@@ -193,7 +190,19 @@ const InhibitorManager = GObject.registerClass({
         this._updateState();
     }
 
+    _reconnectTriggerSignals() {
+        this._disconnectTriggerSignals();
+        this._connectTriggerSignals();
+        this._updateState();
+    }
+
     _connectTriggerSignals() {
+        // Without trigger apps every app, focus and stacking change of the
+        // session would only recompute an empty answer
+        if (this._settings.get_strv(INHIBIT_APPS_KEY).length === 0) {
+            return;
+        }
+
         // Only connect to relevant signals for the selected trigger
         switch (this._settings.get_enum(TRIGGER_APPS_MODE)) {
         case AppsTrigger.ON_RUNNING:
