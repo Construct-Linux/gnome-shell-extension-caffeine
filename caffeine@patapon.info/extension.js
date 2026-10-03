@@ -761,7 +761,7 @@ class Caffeine extends QuickSettings.SystemIndicator {
         }
 
         // Connect command line toggle
-        this._settings.set_boolean(CLI_TOGGLE_KEY, this._state);
+        this._setBoolean(CLI_TOGGLE_KEY, this._state);
         this._settings.connectObject(
             `changed::${CLI_TOGGLE_KEY}`,
             () => this._commandStateChanged(),
@@ -785,7 +785,7 @@ class Caffeine extends QuickSettings.SystemIndicator {
     _handleToggleClick() {
         // Pass the new user state to the inhibitor manager, causes state to invert
         this._inhibitorManager.setUserEnabled(!this._state);
-        this._settings.set_boolean(USER_ENABLED_KEY, this._state);
+        this._setBoolean(USER_ENABLED_KEY, this._state);
 
         if (this._state) {
             // Enable timer when toggled on and duration is set
@@ -820,7 +820,17 @@ class Caffeine extends QuickSettings.SystemIndicator {
             }
         });
 
-        this._settings.set_int(INDICATOR_POS_MAX, pos);
+        if (this._settings.get_int(INDICATOR_POS_MAX) !== pos) {
+            this._settings.set_int(INDICATOR_POS_MAX, pos);
+        }
+    }
+
+    // Each write is a dconf round trip and a change signal for every
+    // listener, prefs included: only write a value that differs
+    _setBoolean(key, value) {
+        if (this._settings.get_boolean(key) !== value) {
+            this._settings.set_boolean(key, value);
+        }
     }
 
     _updateIndicatorPosition() {
@@ -966,7 +976,7 @@ class Caffeine extends QuickSettings.SystemIndicator {
         this._state = this._inhibitorManager.getInhibitState();
 
         // Sync command state
-        this._settings.set_boolean(CLI_TOGGLE_KEY, this._state);
+        this._setBoolean(CLI_TOGGLE_KEY, this._state);
 
         // Update the visual state and subtitle
         this._caffeineToggle.checked = this._state;
