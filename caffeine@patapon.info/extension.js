@@ -124,6 +124,7 @@ const InhibitorManager = GObject.registerClass({
         this._tempManageLight = false;
         this._lastReasons = [];
         this._ignoredReasons = [];
+        this._emittedState = null;
 
         // App trigger signal IDs
         this._appStateSignal = null;
@@ -379,11 +380,21 @@ const InhibitorManager = GObject.registerClass({
             }
         }
 
-        // Let indicator know that either the state or reasons may have changed
-        this.emit('update');
+        // Let indicator know if either the state or reasons changed
+        this._emitIfChanged();
 
         // Remove any night light management override now the signal is done
         this._tempManageLight = false;
+    }
+
+    _emitIfChanged() {
+        const state = [this._isInhibited, this._triggerApp, ...this._lastReasons].join();
+        if (state === this._emittedState) {
+            return;
+        }
+
+        this._emittedState = state;
+        this.emit('update');
     }
 
     _addInhibitor(reasons) {
@@ -423,7 +434,7 @@ const InhibitorManager = GObject.registerClass({
                     if (this._inhibitRequest === request) {
                         this._inhibitRequest = null;
                         this._isInhibited = false;
-                        this.emit('update');
+                        this._emitIfChanged();
                     }
                     return;
                 }
@@ -752,6 +763,9 @@ class Caffeine extends QuickSettings.SystemIndicator {
         // Setup inhibitor manager
         this._inhibitorManager = new InhibitorManager(this._settings);
         this._inhibitorManager.connectObject('update', () => this._inhibitorUpdated(), this);
+        // The manager only reports changes, and its first state came before
+        // this connection
+        this._inhibitorUpdated(false);
 
         // Set manager user state and restore user state, if required
         if (this._settings.get_boolean(USER_ENABLED_KEY) &&
@@ -970,7 +984,7 @@ class Caffeine extends QuickSettings.SystemIndicator {
         }
     }
 
-    _inhibitorUpdated() {
+    _inhibitorUpdated(notify = true) {
         // Update the tracked state
         const oldState = this._state;
         this._state = this._inhibitorManager.getInhibitState();
@@ -984,7 +998,7 @@ class Caffeine extends QuickSettings.SystemIndicator {
         this._updateAppSubtitle(this._inhibitorManager.getInhibitApp());
 
         // Send an OSD notification, if enabled and state changed
-        if (this._state !== oldState) {
+        if (notify && this._state !== oldState) {
             if (this._settings.get_boolean(SHOW_NOTIFICATIONS_KEY) &&
                 !this._inhibitorManager.isFullscreen()) {
                 this._sendOSDNotification(this._state);
