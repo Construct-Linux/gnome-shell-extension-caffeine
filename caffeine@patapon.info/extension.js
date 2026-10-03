@@ -580,10 +580,9 @@ const CaffeineToggle = GObject.registerClass({
             `changed::${DURATION_TIMER_LIST}`,
             () => this._syncTimers(true),
             `changed::${SHOW_TOGGLE_KEY}`,
-            () => {
-                this.visible = this._settings.get_boolean(SHOW_TOGGLE_KEY);
-            },
+            () => this._syncVisible(),
             this);
+        Main.sessionMode.connectObject('updated', () => this._syncVisible(), this);
         this.connect('destroy', () => {
             this._iconActivated = null;
             this._iconDeactivated = null;
@@ -591,7 +590,14 @@ const CaffeineToggle = GObject.registerClass({
         });
 
         // Set menu visibility
-        this.visible = this._settings.get_boolean(SHOW_TOGGLE_KEY);
+        this._syncVisible();
+    }
+
+    // The quick settings stay reachable on the lock screen, where the toggle
+    // must not let anyone keep the machine awake
+    _syncVisible() {
+        this.visible = this._settings.get_boolean(SHOW_TOGGLE_KEY) &&
+            !Main.sessionMode.isLocked;
     }
 
     _syncTimers(resetDefault) {
@@ -722,6 +728,13 @@ class Caffeine extends QuickSettings.SystemIndicator {
         this._caffeineToggle.connectObject('timer-clicked', () => this._forceToggleClick(), this);
 
         // Bind settings signals
+        // Nothing of the indicator shows, or takes a scroll, on the lock screen
+        Main.sessionMode.connectObject('updated', () => {
+            this._manageShowIndicator();
+            this._showIndicatorLabel();
+            this._syncIndicatorsVisible();
+        }, this);
+
         this._settings.connectObject(
             `changed::${TIMER_KEY}`,
             () => this._startTimer(),
@@ -886,7 +899,7 @@ class Caffeine extends QuickSettings.SystemIndicator {
     _showIndicatorLabel() {
         if (this._settings.get_boolean(SHOW_TIMER_KEY) &&
            (this._settings.get_enum(SHOW_INDICATOR_KEY) !== ShowIndicator.NEVER) &&
-            this._timerEnable) {
+            this._timerEnable && !Main.sessionMode.isLocked) {
             this._timerLabel.visible = true;
         } else {
             this._timerLabel.visible = false;
@@ -1018,11 +1031,13 @@ class Caffeine extends QuickSettings.SystemIndicator {
     }
 
     _manageShowIndicator() {
+        const showIndicator = this._settings.get_enum(SHOW_INDICATOR_KEY);
+        const unlocked = !Main.sessionMode.isLocked;
         if (this._state) {
-            this._indicator.visible = this._settings.get_enum(SHOW_INDICATOR_KEY) !== ShowIndicator.NEVER;
+            this._indicator.visible = unlocked && showIndicator !== ShowIndicator.NEVER;
             this._indicator.gicon = this._iconActivated;
         } else {
-            this._indicator.visible = this._settings.get_enum(SHOW_INDICATOR_KEY) === ShowIndicator.ALWAYS;
+            this._indicator.visible = unlocked && showIndicator === ShowIndicator.ALWAYS;
             this._indicator.gicon = this._iconDeactivated;
         }
     }
