@@ -703,7 +703,6 @@ class Caffeine extends QuickSettings.SystemIndicator {
 
         // Init Timers
         this._timeOut = null;
-        this._timePrint = null;
         this._timerEnable = false;
 
         // Show icon
@@ -900,17 +899,24 @@ class Caffeine extends QuickSettings.SystemIndicator {
 
         // Execute Timer only if duration isn't set on infinite time
         if (timerDelay !== 0) {
-            let secondLeft = timerDelay;
+            // One source both counts down and ends the timer; the time left is
+            // read from the end time, so late ticks do not add up to drift
+            const end = GLib.get_monotonic_time() + timerDelay * GLib.USEC_PER_SEC;
             this._showIndicatorLabel();
-            this._printTimer(secondLeft);
-            this._timePrint = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 1000, () => {
-                secondLeft -= 1;
-                this._printTimer(secondLeft);
-                return GLib.SOURCE_CONTINUE;
-            });
+            this._printTimer(timerDelay);
+            this._timeOut = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, 1, () => {
+                const secondsLeft =
+                    Math.ceil((end - GLib.get_monotonic_time()) / GLib.USEC_PER_SEC);
+                if (secondsLeft > 0) {
+                    // Nobody sees the label on the lock screen
+                    if (!Main.sessionMode.isLocked) {
+                        this._printTimer(secondsLeft);
+                    }
+                    return GLib.SOURCE_CONTINUE;
+                }
 
-            this._timeOut = GLib.timeout_add(GLib.PRIORITY_DEFAULT, timerDelay * 1000, () => {
                 // Disable Caffeine when timer ended
+                this._timeOut = null;
                 this._removeTimer();
                 if (this._state) {
                     this._handleToggleClick();
@@ -941,11 +947,9 @@ class Caffeine extends QuickSettings.SystemIndicator {
         this._timerLabel.visible = false;
 
         // Remove timer
-        if ((this._timeOut !== null) || (this._timePrint !== null)) {
+        if (this._timeOut !== null) {
             GLib.Source.remove(this._timeOut);
-            GLib.Source.remove(this._timePrint);
             this._timeOut = null;
-            this._timePrint = null;
         }
     }
 
@@ -1095,10 +1099,6 @@ class Caffeine extends QuickSettings.SystemIndicator {
         if (this._timeOut) {
             GLib.Source.remove(this._timeOut);
             this._timeOut = null;
-        }
-        if (this._timePrint) {
-            GLib.Source.remove(this._timePrint);
-            this._timePrint = null;
         }
 
         MprisPlayer.Destroy();
