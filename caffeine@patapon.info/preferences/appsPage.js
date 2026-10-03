@@ -135,7 +135,7 @@ class CaffeineAppsPage extends Adw.PreferencesPage {
                         gicon: appInfo.get_icon(),
                         pixel_size: 32
                     });
-                    appIcon.get_style_context().add_class('icon-dropshadow');
+                    appIcon.add_css_class('icon-dropshadow');
                     this.apps[i].Row = new Adw.ActionRow({
                         title: appInfo.get_display_name(),
                         subtitle: this._listApps[i].replace('.desktop', ''),
