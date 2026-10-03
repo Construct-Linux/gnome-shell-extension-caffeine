@@ -91,6 +91,15 @@ const TimerIcons = [
     'caffeine-infinite-timer-symbolic'
 ];
 
+// The icon from the icon theme, else the copy shipped with the extension
+function themedIcon(iconTheme, path, name) {
+    if (iconTheme.has_icon(name)) {
+        return Gio.ThemedIcon.new(name);
+    }
+
+    return Gio.icon_new_for_string(`${path}${ActionsPath}${name}.svg`);
+}
+
 const ControlContext = {
     NEVER: 0,
     ALWAYS: 1,
@@ -528,7 +537,7 @@ const CaffeineToggle = GObject.registerClass({
         'timer-clicked': {}
     }
 }, class CaffeineToggle extends QuickSettings.QuickMenuToggle {
-    _init(Me) {
+    _init(Me, iconTheme) {
         super._init({
             'title': _('Caffeine'),
             toggleMode: false
@@ -538,20 +547,10 @@ const CaffeineToggle = GObject.registerClass({
         this._path = Me.path;
 
         // Icons
-        this.finalTimerMenuIcon = TimerMenuIcon;
-        this._iconActivated = Gio.ThemedIcon.new(EnabledIcon);
-        this._iconDeactivated = Gio.ThemedIcon.new(DisabledIcon);
-        this._iconTheme = new St.IconTheme();
-        if (!this._iconTheme.has_icon(TimerMenuIcon)) {
-            this.finalTimerMenuIcon =
-                Gio.icon_new_for_string(`${this._path}${ActionsPath}${TimerMenuIcon}.svg`);
-        }
-        if (!this._iconTheme.has_icon(EnabledIcon)) {
-            this._iconActivated = Gio.icon_new_for_string(`${this._path}${ActionsPath}${EnabledIcon}.svg`);
-        }
-        if (!this._iconTheme.has_icon(DisabledIcon)) {
-            this._iconDeactivated = Gio.icon_new_for_string(`${this._path}${ActionsPath}${DisabledIcon}.svg`);
-        }
+        this._iconTheme = iconTheme;
+        this.finalTimerMenuIcon = themedIcon(iconTheme, this._path, TimerMenuIcon);
+        this._iconActivated = themedIcon(iconTheme, this._path, EnabledIcon);
+        this._iconDeactivated = themedIcon(iconTheme, this._path, DisabledIcon);
         this.updateIcon();
 
         // Set up entry
@@ -639,10 +638,7 @@ const CaffeineToggle = GObject.registerClass({
             if (!label) {
                 continue;
             }
-            let icon = Gio.ThemedIcon.new(TimerIcons[index]);
-            if (!this._iconTheme.has_icon(TimerIcons[index])) {
-                icon = Gio.icon_new_for_string(`${this._path}${ActionsPath}${TimerIcons[index]}.svg`);
-            }
+            const icon = themedIcon(this._iconTheme, this._path, TimerIcons[index]);
             const item = new PopupMenu.PopupImageMenuItem(label, icon);
             item.connectObject('activate', () => this._checkTimer(timer), this);
             this._timerItems.set(timer, item);
@@ -699,16 +695,10 @@ class Caffeine extends QuickSettings.SystemIndicator {
         this._timerLabel.visible = false;
         this.add_child(this._timerLabel);
 
-        // Icons
-        this._iconActivated = Gio.ThemedIcon.new(EnabledIcon);
-        this._iconDeactivated = Gio.ThemedIcon.new(DisabledIcon);
-        this._iconTheme = new St.IconTheme();
-        if (!this._iconTheme.has_icon(EnabledIcon)) {
-            this._iconActivated = Gio.icon_new_for_string(`${Me.path}${ActionsPath}${EnabledIcon}.svg`);
-        }
-        if (!this._iconTheme.has_icon(DisabledIcon)) {
-            this._iconDeactivated = Gio.icon_new_for_string(`${Me.path}${ActionsPath}${DisabledIcon}.svg`);
-        }
+        // Icons, looked up in one icon theme shared with the toggle
+        const iconTheme = new St.IconTheme();
+        this._iconActivated = themedIcon(iconTheme, Me.path, EnabledIcon);
+        this._iconDeactivated = themedIcon(iconTheme, Me.path, DisabledIcon);
         this._indicator.gicon = this._iconDeactivated;
 
         // Init Timers
@@ -719,7 +709,7 @@ class Caffeine extends QuickSettings.SystemIndicator {
         this._manageShowIndicator();
 
         // Quick Settings
-        this._caffeineToggle = new CaffeineToggle(Me);
+        this._caffeineToggle = new CaffeineToggle(Me, iconTheme);
 
         this.quickSettingsItems.push(this._caffeineToggle);
         this._updateTimerSubtitle();
