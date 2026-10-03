@@ -1118,10 +1118,12 @@ export default class CaffeineExtension extends Extension {
         this._settings = this.getSettings();
         this._caffeineIndicator = new Caffeine(this);
 
-        // Register shortcut
+        // Register shortcut, outside the lock and login screens: there it
+        // would let anyone at the machine keep it from suspending
         Main.wm.addKeybinding(TOGGLE_SHORTCUT, this._settings,
             Meta.KeyBindingFlags.IGNORE_AUTOREPEAT,
-            Shell.ActionMode.ALL, () => {
+            Shell.ActionMode.NORMAL | Shell.ActionMode.OVERVIEW |
+            Shell.ActionMode.POPUP, () => {
                 this._caffeineIndicator._handleToggleClick();
             });
     }
