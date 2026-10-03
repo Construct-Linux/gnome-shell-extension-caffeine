@@ -248,85 +248,115 @@ class CaffeineTimerPage extends Adw.PreferencesPage {
     }
 
     timerSpinRow(name, step, value, minValue, maxValue) {
-        /*
-        * Tweak Adw.SpinRow
-        *
-        *     For some reasons, the output of the Gtk.Text from SpinRow can't be
-        * modified using 'set_text()' without a bug with single increment.
-        * Similar problem to this one:
-        * https://stackoverflow.com/questions/61753800/formatting-gtk-spinbuttons-output-does-not-work-for-single-mouse-clicks
-        *
-        *     The workaround is to create a new separate Gtk.Entry to display HH:MM:SS
-        * and hide the original Gtk.Text.
-        */
-
-        // Create the SpinRow
-        const spinRowAdjustment = new Gtk.Adjustment({
+        return new DurationRow(name, new Gtk.Adjustment({
             lower: minValue,
             upper: maxValue,
             step_increment: step,
-            page_increment: 960,
             value
-        });
+        }));
+    }
+});
 
-        const spinRow = new Adw.SpinRow({
-            title: name,
-            climb_rate: 0,
-            adjustment: spinRowAdjustment,
-            snap_to_ticks: true
-        });
+const DURATION_PATTERN = /^(\d{1,2}):([0-5]\d):([0-5]\d)$/;
 
-        // Create new Entry
-        const timeEntry = new Gtk.Entry({
-            editable: true,
-            hexpand: true,
-            halign: Gtk.Align.END,
+function formatDuration(seconds) {
+    return [Math.floor(seconds / 3600), Math.floor((seconds % 3600) / 60), seconds % 60]
+        .map((n) => n.toString().padStart(2, '0')).join(':');
+}
+
+/*
+ * A row editing a duration as HH:MM:SS, with buttons stepping it by the
+ * adjustment's step. Not an Adw.SpinRow: its output signal can format the
+ * text, but its input signal hands the parsed value back through an out
+ * argument that gjs cannot set, so typed times cannot be read through its
+ * public API.
+ */
+const DurationRow = GObject.registerClass({
+    Properties: {
+        'value': GObject.ParamSpec.double('value', null, null,
+            GObject.ParamFlags.READWRITE, 0, Number.MAX_SAFE_INTEGER, 0)
+    }
+}, class DurationRow extends Adw.ActionRow {
+    _init(title, adjustment) {
+        super._init({ title });
+
+        this._adjustment = adjustment;
+        this._entry = new Gtk.Entry({
+            valign: Gtk.Align.CENTER,
             max_width_chars: 8,
             max_length: 8,
-            margin_top: 8,
-            margin_bottom: 8,
-            has_frame: false
+            xalign: 1
         });
-
-        // Get the Gtk.SpinButton and Gtk.Text
-        const childWidget = spinRow.get_last_child();
-        const boxWidget = childWidget.get_last_child();
-        const spinButtonWidget = boxWidget.get_first_child();
-        const spinButtonText = spinButtonWidget.get_first_child();
-
-        // Hide the current text input
-        spinButtonText.visible = false;
-
-        // Add the new text input an re-order properly the widget component
-        spinRow.remove(spinButtonWidget);
-        spinButtonWidget.set_property('halign', Gtk.Align.END);
-        spinButtonWidget.set_property('hexpand', false);
-        spinRow.add_suffix(timeEntry);
-        spinRow.add_suffix(spinButtonWidget);
-
-        // Display duration value as HH:MM:SS
-        spinRow.connect('output', () => {
-            const currentValue = spinRow.get_value();
-            const hours = Math.floor(currentValue / 3600);
-            const minutes = Math.floor((currentValue % 3600) / 60);
-            const seconds = Math.floor(currentValue % 60);
-            const newText = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-            if (spinRow.get_text() !== newText) {
-                timeEntry.set_text(newText);
-            }
+        this._lessButton = new Gtk.Button({
+            icon_name: 'list-remove-symbolic',
+            valign: Gtk.Align.CENTER,
+            css_classes: ['flat', 'circular']
         });
-
-        // Update value from the new text entry
-        timeEntry.connect('changed', () => {
-            const text = timeEntry.get_text();
-            if ((text !== '') && (text !== null)) {
-                const [hh, mm, ss] = text.split(':').map(Number);
-                const currentValue = parseInt(hh * 3600 + mm * 60 + ss);
-                if ((spinRow.get_value() !== currentValue) && currentValue !== null) {
-                    spinRow.set_value(currentValue);
-                }
-            }
+        this._moreButton = new Gtk.Button({
+            icon_name: 'list-add-symbolic',
+            valign: Gtk.Align.CENTER,
+            css_classes: ['flat', 'circular']
         });
-        return spinRow;
+        this.add_suffix(this._entry);
+        this.add_suffix(this._lessButton);
+        this.add_suffix(this._moreButton);
+
+        this._lessButton.connect('clicked', () =>
+            this.set_value(this.get_value() - adjustment.step_increment));
+        this._moreButton.connect('clicked', () =>
+            this.set_value(this.get_value() + adjustment.step_increment));
+
+        // A complete time applies as it is typed; leaving the entry or
+        // pressing Enter puts the text back in shape
+        this._entry.connect('changed', () => this._applyText());
+        this._entry.connect('activate', () => this._sync());
+        const focusController = new Gtk.EventControllerFocus();
+        focusController.connect('leave', () => this._sync());
+        this._entry.add_controller(focusController);
+
+        adjustment.connect('value-changed', () => {
+            this._sync();
+            this.notify('value');
+        });
+        this._sync();
+    }
+
+    get value() {
+        return this._adjustment.get_value();
+    }
+
+    set value(value) {
+        // Whole steps, as the duration list holds whole minutes
+        const step = this._adjustment.step_increment;
+        this._adjustment.set_value(Math.round(value / step) * step);
+    }
+
+    get_value() {
+        return this.value;
+    }
+
+    set_value(value) {
+        this.value = value;
+    }
+
+    _applyText() {
+        const match = DURATION_PATTERN.exec(this._entry.get_text());
+        if (!match) {
+            return;
+        }
+
+        const [, hours, minutes, seconds] = match.map(Number);
+        this._typing = true;
+        this.set_value(hours * 3600 + minutes * 60 + seconds);
+        this._typing = false;
+    }
+
+    _sync() {
+        const value = this.get_value();
+        if (!this._typing) {
+            this._entry.set_text(formatDuration(value));
+        }
+        this._lessButton.sensitive = value > this._adjustment.lower;
+        this._moreButton.sensitive = value < this._adjustment.upper;
     }
 });
