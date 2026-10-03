@@ -368,15 +368,14 @@ const InhibitorManager = GObject.registerClass({
             }
         }
 
-        // Update night light if required
+        // Update night light if required. Each assignment is a Properties.Set
+        // call to gsd-color, so only assign a value that differs from the
+        // proxy's cached one.
         if (this.isNightLightManaged()) {
             // If this._tempManageLight is true we're actually disabling
-            if (shouldInhibit && !this._tempManageLight) {
-                // Block night light
-                this._colorProxy.DisabledUntilTomorrow = true;
-            } else {
-                // Allow night light
-                this._colorProxy.DisabledUntilTomorrow = false;
+            const disabled = shouldInhibit && !this._tempManageLight;
+            if (this._colorProxy.DisabledUntilTomorrow !== disabled) {
+                this._colorProxy.DisabledUntilTomorrow = disabled;
             }
         }
 
