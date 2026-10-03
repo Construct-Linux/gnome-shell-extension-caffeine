@@ -28,7 +28,7 @@ import Clutter from 'gi://Clutter';
 import GLib from 'gi://GLib';
 
 import { Extension, gettext as _ } from 'resource:///org/gnome/shell/extensions/extension.js';
-import { MprisPlayer } from './mprisMediaPlayer2.js';
+import { MprisWatcher } from './mprisMediaPlayer2.js';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
@@ -125,6 +125,7 @@ const InhibitorManager = GObject.registerClass({
         this._lastReasons = [];
         this._ignoredReasons = [];
         this._emittedState = null;
+        this._mpris = null;
 
         // App trigger signal IDs
         this._appStateSignal = null;
@@ -183,10 +184,11 @@ const InhibitorManager = GObject.registerClass({
 
     _onMprisSettingChange() {
         const enable = this._settings.get_boolean(MPRIS_KEY);
-        if (enable && !MprisPlayer.isActive) {
-            MprisPlayer.Get().connectIsPlaying((_isPlaying) => this._updateState());
-        } else {
-            MprisPlayer.Destroy();
+        if (enable && !this._mpris) {
+            this._mpris = new MprisWatcher(() => this._updateState());
+        } else if (!enable && this._mpris) {
+            this._mpris.destroy();
+            this._mpris = null;
         }
         this._updateState();
     }
@@ -293,7 +295,7 @@ const InhibitorManager = GObject.registerClass({
             reasons.push('fullscreen');
         }
 
-        if (MprisPlayer.isActive && MprisPlayer.Get().isPlaying) {
+        if (this._mpris?.isPlaying) {
             reasons.push('mpris');
         }
 
@@ -508,6 +510,8 @@ const InhibitorManager = GObject.registerClass({
     }
 
     destroy() {
+        this._mpris?.destroy();
+        this._mpris = null;
         this._disconnectTriggerSignals();
         global.display.disconnectObject(this);
         Main.sessionMode.disconnectObject(this);
@@ -1101,7 +1105,6 @@ class Caffeine extends QuickSettings.SystemIndicator {
             this._timeOut = null;
         }
 
-        MprisPlayer.Destroy();
         this._inhibitorManager.destroy();
         this._inhibitorManager = null;
 

@@ -1,309 +1,114 @@
 import Gio from 'gi://Gio';
-import GObject from 'gi://GObject';
+import GLib from 'gi://GLib';
 
-// eslint-disable-next-line
-'use strict';
+const MPRIS_NAMESPACE = 'org.mpris.MediaPlayer2';
 
-/**
- * Represents the DBus proxy class instance.
- * @typedef {{
- *  ListNamesRemote(callbackFn: (data: [string[]]) => never): never;
- *  ListNamesSync(): [string[]];
- *  ListNamesAsync(): Promise<[string[]]>;
- *  connectSignal(signal: string, callbackFn: (proxy, sender, []: [name: string, oldOwner: string, newOwner: string]) => void): any
- *  disconnectSignal(handlerId: any): void
- *  }} DBusProxy
- */
-/**
- * Represents the DBus proxy class.
- * @typedef {{
- *  new(
- *      bus: string,
- *      name: string,
- *      objectPath: string,
- *      proxy: (proxy: DBusProxy) => void): DBusProxy;
- * }} DBusProxyClass
- */
-const DBusInterface = `<node>
-    <interface name="org.freedesktop.DBus">
-        <method name="ListNames">
-            <arg type="as" direction="out" />
-        </method>
-        <signal name="NameAcquired">
-            <arg type="s"/>
-        </signal>
-    </interface>
-</node>`;
-
-/**
- * Represents the DBus Mpris Player proxy class instance.
- * @typedef {{
- *  PlaybackStatus: string;
- *  connect(signal: string, callbackFn: (player: DBusMprisPlayerProxy) => void): any
- *  disconnect(handlerId: number): void
- * }} DBusMprisPlayerProxy
- */
-/**
- * Represents the DBus Mpris Player proxy class.
- * @typedef {{
- *  new(
- *      bus: string,
- *      name: string,
- *      objectPath: string,
- *      player: (player: DBusMprisPlayerProxy) => void): DBusMprisPlayerProxy;
- * }} DBusMprisPlayerProxyClass
- */
 const DBusMprisPlayerInterface = `<node>
   <interface name="org.mpris.MediaPlayer2.Player">
     <property name="PlaybackStatus" type="s" access="read"/>
   </interface>
 </node>`;
 
-// ======================
+const MprisPlayerProxy = Gio.DBusProxy.makeProxyWrapper(DBusMprisPlayerInterface);
 
 /**
- * MprisPlayer singleton class.
- * Call `MprisPlayer.Get()` & `MprisPlayer.Destroy()`.
+ * Follows the session's MPRIS players and reports whether any is playing.
  */
-const MprisPlayer = GObject.registerClass({
-    Signals: {
-        isPlaying: {
-            param_types: [GObject.TYPE_BOOLEAN]
-        }
+export class MprisWatcher {
+    /**
+     * @param {(isPlaying: boolean) => void} onChanged Called when the answer changes
+     */
+    constructor(onChanged) {
+        this._onChanged = onChanged;
+        this._isPlaying = false;
+        this._cancellable = new Gio.Cancellable();
+
+        /** @type {Map<string, {proxy: Gio.DBusProxy, handlerId: number}>} */
+        this._players = new Map();
+
+        // The bus only sends the owner changes of names in the MPRIS
+        // namespace, rather than every name change of the session.
+        this._subscriptionId = Gio.DBus.session.signal_subscribe(
+            'org.freedesktop.DBus', 'org.freedesktop.DBus', 'NameOwnerChanged',
+            '/org/freedesktop/DBus', MPRIS_NAMESPACE,
+            Gio.DBusSignalFlags.MATCH_ARG0_NAMESPACE,
+            (_connection, _sender, _path, _iface, _signal, params) => {
+                const [name, oldOwner, newOwner] = params.deepUnpack();
+                if (newOwner === '') {
+                    this._removePlayer(name);
+                } else if (oldOwner === '') {
+                    this._addPlayer(name);
+                }
+                this._update();
+            });
+
+        Gio.DBus.session.call('org.freedesktop.DBus', '/org/freedesktop/DBus',
+            'org.freedesktop.DBus', 'ListNames', null, new GLib.VariantType('(as)'),
+            Gio.DBusCallFlags.NONE, -1, this._cancellable, (connection, res) => {
+                let names;
+                try {
+                    [names] = connection.call_finish(res).deepUnpack();
+                } catch (e) {
+                    if (!e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) {
+                        logError(e, 'Listing the MPRIS players');
+                    }
+                    return;
+                }
+
+                names.forEach((name) => this._addPlayer(name));
+                this._update();
+            });
     }
-}, class MprisPlayer extends GObject.Object {
-    /**
-     * @type {_MprisPlayer | undefined}
-     */
-    static _instance;
 
-    static get isActive() {
-        return this._instance !== undefined;
-    }
-
-    /**
-     * Get singleton instance of MprisMediaPlayer2
-     * @returns {_MprisPlayer}
-     */
-    static Get() {
-        if (this._instance) {
-            return this._instance;
-        }
-        this._instance = new MprisPlayer();
-        return this._instance;
-    }
-
-    /**
-     * Destroy the singleton instance of MprisMediaPlayer2
-     * @returns {void}
-     */
-    static Destroy() {
-        if (this._instance) {
-            this._instance._onDestroy();
-        }
-        this._instance = undefined;
-    }
-
-    /**
-     * @readonly
-     * @type {DBusMprisPlayerProxyClass}
-     */
-    _DBusPlayerProxy;
-
-    /**
-     * @readonly
-     * @type {DBusProxy}
-     */
-    _dbusProxy;
-
-    /**
-     * @readonly
-     * @type {any}
-     */
-    _dbusHandlerId;
-
-    _mprisPrefix = 'org.mpris.MediaPlayer2.';
-
-    /**
-     * All players with player dbusProxy instance
-     * @type {Map<string, { handlerId: number, playerProxy: DBusMprisPlayerProxy }>}
-     */
-    _activePlayers = new Map();
-
-    /**
-     * All players with player dbusProxy instance
-     * @type {Set<any>}
-     */
-    _connections = new Set();
-
-    _isPlaying = false;
     get isPlaying() {
         return this._isPlaying;
     }
 
-    _lastEmittedPlayStatus = false;
-
-    refresh() {
-        const dbusNames = this._getMPlayerApps();
-        dbusNames.forEach((dbusName) => this._addPlayer(dbusName));
-        this._emitPlayStatus(true);
-    }
-
-    /**
-     * Set a callback function to isPlaying status changes.
-     * Use `disconnectIsPlaying(connectId)` to disconnect manually or `MprisPlayer.Destroy()`
-     * to destroy all connections.
-     * @param {(isPlaying: boolean) => void} callbackFn Callback function
-     * @returns {any}
-     */
-    connectIsPlaying(callbackFn) {
-        const connectId = this.connect(
-            'isPlaying',
-            (_, isPlaying) => callbackFn(isPlaying)
-        );
-        this._connections.add(connectId);
-        return connectId;
-    }
-
-    /**
-     * Manually disable a single `connectIsPlaying` connection.
-     * Run `MprisPlayer.Destroy()` to cleanup all connections.
-     * @param {any} connectId The `connectId` received from `connectIsPlaying()`.
-     * @returns {void}
-     */
-    disconnectIsPlaying(connectId) {
-        if (!this._connections.has(connectId)) {
-            return;
-        }
-        this.disconnect(connectId);
-        this._connections.delete(connectId);
-        return connectId;
-    }
-
-    _emitPlayStatus(forceEmit = false) {
-        if (this._lastEmittedPlayStatus === this.isPlaying && !forceEmit) {
-            return;
-        }
-        this._lastEmittedPlayStatus = this.isPlaying;
-        this.emit('isPlaying', this.isPlaying);
-    }
-
-    /**
-     * @param {string} dbusName Name in dbus
-     */
-    _addPlayer(dbusName) {
-        if (this._activePlayers.has(dbusName)) {
+    _addPlayer(name) {
+        if (!name.startsWith(`${MPRIS_NAMESPACE}.`) || this._players.has(name)) {
             return;
         }
 
-        const dbusPlayerProxy = new this._DBusPlayerProxy(
-            Gio.DBus.session,
-            dbusName,
-            '/org/mpris/MediaPlayer2',
-            (_player) => this._onPlayerChange()
-        );
-
-        const handlerId = dbusPlayerProxy.connect(
-            'g-properties-changed',
-            (_player) => this._onPlayerChange()
-        );
-
-        this._activePlayers.set(dbusName, {
-            handlerId,
-            playerProxy: dbusPlayerProxy
-        });
+        const proxy = new MprisPlayerProxy(Gio.DBus.session, name,
+            '/org/mpris/MediaPlayer2', (_proxy, error) => {
+                if (error) {
+                    if (!error.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) {
+                        logError(error, `MPRIS player ${name}`);
+                    }
+                    return;
+                }
+                this._update();
+            }, this._cancellable);
+        const handlerId = proxy.connect('g-properties-changed', () => this._update());
+        this._players.set(name, { proxy, handlerId });
     }
 
-    /**
-     * @param {string} dbusName Name in dbus
-     */
-    _removePlayer(dbusName) {
-        const player = this._activePlayers.get(dbusName);
+    _removePlayer(name) {
+        const player = this._players.get(name);
         if (!player) {
             return;
         }
-        player.playerProxy.disconnect(player.handlerId);
-        this._activePlayers.delete(dbusName);
+
+        player.proxy.disconnect(player.handlerId);
+        this._players.delete(name);
     }
 
-    _onPlayerChange() {
-        let isPlaying = false;
-        for (const player of this._activePlayers.values()) {
-            if (player.playerProxy.PlaybackStatus === 'Playing') {
-                isPlaying = true;
-            }
-        }
-        this._isPlaying = isPlaying;
-        this._emitPlayStatus();
-    }
-
-    /**
-     * @param {*} _proxy -
-     * @param {*} _sender -
-     * @param {[string, string, string]} owner -
-     * @returns {void}
-     */
-    _onNameOwnerChanged(_proxy, _sender, [name, oldOwner, newOwner]) {
-        if (!name.startsWith(this._mprisPrefix)) {
+    _update() {
+        const isPlaying = [...this._players.values()].some(
+            ({ proxy }) => proxy.PlaybackStatus === 'Playing');
+        if (isPlaying === this._isPlaying) {
             return;
         }
-        if (newOwner === '') {
+
+        this._isPlaying = isPlaying;
+        this._onChanged(isPlaying);
+    }
+
+    destroy() {
+        this._cancellable.cancel();
+        Gio.DBus.session.signal_unsubscribe(this._subscriptionId);
+        for (const name of [...this._players.keys()]) {
             this._removePlayer(name);
-        } else if (oldOwner === '') {
-            this._addPlayer(name);
         }
-        this._onPlayerChange();
     }
-
-    /**
-     * Get the dbus name list for mpris players
-     * @returns {string[]}
-     */
-    _getMPlayerApps() {
-        const [names] = this._dbusProxy.ListNamesSync();
-        const mprisPlayers = names.filter((dbusName) =>
-            dbusName.startsWith(this._mprisPrefix)
-        );
-
-        return mprisPlayers;
-    }
-
-    _onDestroy() {
-        this._dbusProxy.disconnectSignal(this._dbusHandlerId);
-        for (const dbusName of this._activePlayers.keys()) {
-            this._removePlayer(dbusName);
-        }
-        this._activePlayers.clear();
-
-        for (const connectId of this._connections.values()) {
-            this.disconnectIsPlaying(connectId);
-        }
-        this._connections.clear();
-    }
-
-    constructor() {
-        super();
-
-        /** @type {DBusProxyClass} */
-        const DBusProxy = Gio.DBusProxy.makeProxyWrapper(DBusInterface);
-        this._DBusPlayerProxy = Gio.DBusProxy.makeProxyWrapper(
-            DBusMprisPlayerInterface
-        );
-
-        this._dbusProxy = new DBusProxy(
-            Gio.DBus.session,
-            'org.freedesktop.DBus',
-            '/org/freedesktop/DBus',
-            (_proxy) => this._onPlayerChange()
-        );
-
-        this._dbusHandlerId = this._dbusProxy.connectSignal(
-            'NameOwnerChanged',
-            (...args) => this._onNameOwnerChanged(...args)
-        );
-
-        this.refresh();
-    }
-});
-
-export { MprisPlayer };
+}
