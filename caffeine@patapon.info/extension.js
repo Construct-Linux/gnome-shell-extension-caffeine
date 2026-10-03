@@ -118,7 +118,7 @@ const InhibitorManager = GObject.registerClass({
         super._init();
 
         this._isInhibited = false;
-        this._inhibitorCookie = null;
+        this._inhibitRequest = null;
         this._userEnabled = false;
         this._triggerApp = null;
         this._tempManageLight = false;
@@ -398,33 +398,50 @@ const InhibitorManager = GObject.registerClass({
             inhibitFlags = 8;
         }
 
-        // Pack the parameters for DBus
-        const params = [
-            GLib.Variant.new_string('caffeine-gnome-extension'),
-            GLib.Variant.new_uint32(0),
-            GLib.Variant.new_string('Inhibited by Caffeine GNOME extension'),
-            GLib.Variant.new_uint32(inhibitFlags)
-        ];
-        const paramsVariant = GLib.Variant.new_tuple(params);
+        // Asked asynchronously: a synchronous call would block the compositor
+        // for the session manager's round trip on every fullscreen change,
+        // toggle and lock. The request stands in for the inhibitor until its
+        // cookie arrives.
+        const request = { cookie: null, removed: false };
+        this._inhibitRequest = request;
+        this._isInhibited = true;
 
-        // Synchronously add the inhibitor
-        const cookieTuple = this._sessionManager.call_sync('Inhibit', paramsVariant,
-            Gio.DBusCallFlags.NONE, -1, null);
-        if (cookieTuple !== null) {
-            this._inhibitorCookie = cookieTuple.get_child_value(0).get_uint32();
-            this._isInhibited = true;
-        } else {
-            log('Failed to add inhibitor');
-        }
+        this._sessionManager.InhibitRemote('caffeine-gnome-extension', 0,
+            'Inhibited by Caffeine GNOME extension', inhibitFlags,
+            (result, error) => {
+                if (error) {
+                    logError(error, 'Failed to add inhibitor');
+                    if (this._inhibitRequest === request) {
+                        this._inhibitRequest = null;
+                        this._isInhibited = false;
+                        this.emit('update');
+                    }
+                    return;
+                }
+
+                const [cookie] = result;
+                if (request.removed) {
+                    this._sessionManager.UninhibitRemote(cookie);
+                } else {
+                    request.cookie = cookie;
+                }
+            });
     }
 
     _removeInhibitor() {
-        // Remove the inhibitor if it's active
-        if (this._isInhibited) {
-            // Use the cookie to remove the inhibitor
-            this._sessionManager.UninhibitRemote(this._inhibitorCookie);
-            this._inhibitorCookie = null;
-            this._isInhibited = false;
+        const request = this._inhibitRequest;
+        if (!request) {
+            return;
+        }
+
+        this._inhibitRequest = null;
+        this._isInhibited = false;
+
+        // A request still waiting for its cookie gives it back on arrival
+        if (request.cookie !== null) {
+            this._sessionManager.UninhibitRemote(request.cookie);
+        } else {
+            request.removed = true;
         }
     }
 
