@@ -16,8 +16,6 @@
 
    // From https://gitlab.com/skrewball/openweather/-/blob/master/src/prefs.js
 */
-/* exported CaffeinePrefs */
-'use strict';
 
 import Gtk from 'gi://Gtk';
 import Gdk from 'gi://Gdk';

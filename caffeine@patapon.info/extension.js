@@ -1,7 +1,3 @@
-/* -*- mode: js2 - indent-tabs-mode: nil - js2-basic-offset: 4 -*- */
-/* jshint multistr:true */
-/* jshint esnext:true */
-/* exported CaffeineExtension */
 /**
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,8 +12,6 @@
  *  You should have received a copy of the GNU General Public License
  *  along with this program.  If not, see <http://www.gnu.org/licenses/>.
  **/
-
-'use strict';
 
 import Gio from 'gi://Gio';
 import GObject from 'gi://GObject';
